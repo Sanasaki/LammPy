@@ -1,7 +1,6 @@
 import re
 from io import StringIO
 
-from Python.ChemPy.AtomicSystems import Atom, Molecule
 from Python.FileTypes.File import File
 
 
@@ -19,38 +18,40 @@ class XSDFile(File):
         return " "
 
     @staticmethod
-    def find_molecules(chemicalBonds: list[tuple[Atom, Atom]]) -> list[Molecule]:
+    def find_molecules(bonds: list[tuple[str, str]]) -> list[list[str]]:
         """
         Regroupe les atomes en molécules basées sur les liaisons.
         bonds : liste de tuples (atom1, atom2) représentant les liaisons.
         Retourne une liste de molécules (listes d'atomes).
         """
 
-        linkedAtoms: dict[Atom, list[Atom]] = {}
-        for atom1, atom2 in chemicalBonds:
-            linkedAtoms[atom1] = linkedAtoms.get(atom1, []) + [atom2]
-            linkedAtoms[atom2] = linkedAtoms.get(atom2, []) + [atom1]
+        linkedAtoms: dict[str, list[str]] = {}
+        for a1, a2 in bonds:
+            linkedAtoms[a1] = linkedAtoms.get(a1, []) + [a2]
+            linkedAtoms[a2] = linkedAtoms.get(a2, []) + [a1]
 
         # Recherche des molécules en parcourant le graphe
-        visited_atoms: set[Atom] = set()
+        visited_atoms: set[str] = set()
 
         # Fonction récursive pour explorer une molécule
-        def appendAtomChain(atom: Atom, molecule: Molecule):
+        def appendAtomChain(atom: str, molecule: list[str]):
             """
-            Add one atom (and recursively its neighbors) to the molecule.
+            Modifie la liste renseignée en argument pour qu'elle inclue tous les atomes voisins (et leurs propres voisins) de l'atome donné.
+            Input: un atome, molécule mère
+            Output: molécule mère modifiée
             """
             if atom in visited_atoms:
                 return
             visited_atoms.add(atom)
-            molecule.addAtom(atom)
+            molecule.append(atom)
             for neighbor in linkedAtoms[atom]:
                 appendAtomChain(neighbor, molecule)
 
-        molecules: list[Molecule] = []
+        molecules: list[list[str]] = []
 
         for atom in linkedAtoms:
             if atom not in visited_atoms:
-                molecule: Molecule = Molecule(atomList=[])
+                molecule: list[str] = []
                 appendAtomChain(atom, molecule)
                 molecules.append(molecule)
 
@@ -152,6 +153,6 @@ class XSDFile(File):
 
 
 if __name__ == "__main__":
-    xsdExample: str = r"C:\Archives\Thesis\Lab\VisualStudioCode\Python\LammPy\NAMCrystalEditedForLAMMPS.xsd"
+    xsdExample: str = r"NAMCrystalEditedForLAMMPS.xsd"
     xsdFile = XSDFile(xsdExample)
     print(xsdFile.getCrystal())

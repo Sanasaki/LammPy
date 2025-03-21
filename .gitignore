@@ -2,3 +2,4 @@
 /output
 /testLammpsOutput.lammps
 /__pycache__
+*.xsd
