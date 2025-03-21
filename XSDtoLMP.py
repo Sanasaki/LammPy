@@ -1,7 +1,7 @@
 import re
 from io import StringIO
 
-from Python.ChemPy.AtomicSystems import Atom, Molecule
+from Python.ChemPy.AtomicSystems import Atom, MolecularSystem, Molecule
 from Python.FileTypes.File import File
 
 
@@ -27,9 +27,8 @@ class XSDFile(File):
         """
 
         linkedAtoms: dict[Atom, list[Atom]] = {}
-        for atom1, atom2 in chemicalBonds:
-            linkedAtoms[atom1] = linkedAtoms.get(atom1, []) + [atom2]
-            linkedAtoms[atom2] = linkedAtoms.get(atom2, []) + [atom1]
+        # for atom1, atom2 in chemicalBonds:
+        #     atom1.bond_to(atom2)
 
         # Recherche des molécules en parcourant le graphe
         visited_atoms: set[Atom] = set()
@@ -56,53 +55,75 @@ class XSDFile(File):
 
         return molecules
 
-    def getCrystal(self) -> str:
-        textBuffer = StringIO()
-        aVector: list[str] = []
-        bVector: list[str] = []
-        cVector: list[str] = []
+    def get_bonds(self) -> list[tuple[Atom, Atom]]:
+        self.atoms: dict[int, Atom] = self.get_atoms()
+        bonds: list[tuple[Atom, Atom]] = []
         with open(self.filePath, "r") as xsdFile:
-            atomDict: dict[str, tuple[str, str, str, str]] = {}
-            lmpIDxsdIDdict: dict[str, str] = {}
-            i = 1
-            atomPairs: list[tuple[str, str]] = []
+            # atomDict: dict[str, Atom] = {}
             for line in xsdFile:
-                # Retriving atoms
-                if ("<Atom3d" and "UserID") in line:
-                    atomID: str = self.get_property_value(line, "ID")
-                    lammpsType: str = self.get_property_value(line, "Name")
-                    x, y, z = self.get_property_value(line, "XYZ").split(",")
-                    atomDict[atomID] = (lammpsType, x, y, z)
-                    lmpIDxsdIDdict[atomID] = str(i)
-                    i += 1
-
-                # Retriving molecules
                 if ("<Bond" and "Connects") in line:
                     ## Hotfix to exclude HBond
                     if "HBond" in line:
                         continue
-                    atom1, atom2 = self.get_property_value(line, "Connects").split(",")
-                    atomPairs += [(atom1, atom2)]
+                    xsdIdAtom1, xsdIdAtom2 = self.get_property_value(line, "Connects").split(",")
+                    # atomPairs += [(Atom(xsdIdAtom1), Atom(xsdIdAtom2))]
+                    print(xsdIdAtom1, xsdIdAtom2)
+                    # print(self.atoms[])
+                    bonds.append((self.atoms[str(xsdIdAtom1)], self.atoms[str(xsdIdAtom2)]))
+        return bonds
 
+    def get_cell_parameters(self) -> list[list[str]]:
+        with open(self.filePath, "r") as xsdFile:
+            aVector: list[str] = []
+            bVector: list[str] = []
+            cVector: list[str] = []
+            for line in xsdFile:
                 if "SpaceGroup" in line:
                     aVector: list[str] = self.get_property_value(line, "AVector").split(",")
                     bVector: list[str] = self.get_property_value(line, "BVector").split(",")
                     cVector: list[str] = self.get_property_value(line, "CVector").split(",")
+            return [aVector, bVector, cVector]
 
-        print(atomPairs)
-        molecules = self.find_molecules(atomPairs)
+    def get_atoms(self) -> dict[int, Atom]:
+        with open(self.filePath, "r") as xsdFile:
+            self.atoms: dict[int, Atom] = {}
+            for line in xsdFile:
+                if ("<Atom3d" and "UserID") in line:
+                    newAtom = Atom()
+                    newAtom.id = self.get_property_value(line, "ID")
+                    newAtom.label = self.get_property_value(line, "Name")
+                    newAtom.x, newAtom.y, newAtom.z = self.get_property_value(line, "XYZ").split(",")
+                    self.atoms[newAtom.id] = newAtom
+                    print(newAtom, newAtom.id, newAtom.label, newAtom.x, newAtom.y, newAtom.z)
+        return self.atoms
+
+    def getCrystal(self) -> str:
+        textBuffer = StringIO()
+        atoms = self.get_atoms()
+        bonds = self.get_bonds()
+        aVector, bVector, cVector = self.get_cell_parameters()
+
+        molecularSystem = MolecularSystem()
+        self.molecules = molecularSystem.find_molecules(bonds)
+
+        # print(atomPairs)
+        # self.molecules = self.find_molecules(atomPairs)
         crystalMatrix: list[float] = [float(aVector[0]), float(bVector[1]), float(cVector[2])]
 
         textBuffer.write("\n")
-        for atomWithXsdID in atomDict.values():
-            createAtom: str = f"create_atoms {atomWithXsdID[0]} single {float(atomWithXsdID[1]) * crystalMatrix[0]} {float(atomWithXsdID[2]) * crystalMatrix[1]} {float(atomWithXsdID[3]) * crystalMatrix[2]} remap yes\n"
+        lammpsIdCorrespondingTo: dict[int, int] = {}
+        i = 1
+        for xsdId, atom in atoms.items():
+            createAtom: str = f"create_atoms {atom.label} single {float(atom.x) * crystalMatrix[0]} {float(atom.y) * crystalMatrix[1]} {float(atom.z) * crystalMatrix[2]} remap yes #{xsdId}\n"
+            lammpsIdCorrespondingTo[xsdId] = i
+            i += 1
             textBuffer.write(createAtom)
 
-        print(molecules)
-        for i, molecule in enumerate(molecules):
+        print(self.molecules)
+        for i, molecule in enumerate(self.molecules):
             textBuffer.write("\n")
-            for atomWithXsdID in molecule:
-                atomBindsToMolecule: str = f"set atom {lmpIDxsdIDdict.get(atomWithXsdID)} mol {i + 1} #{atomDict[atomWithXsdID][0]}\n"
+            for atom in molecule:
+                atomBindsToMolecule: str = f"set atom {lammpsIdCorrespondingTo.get(atom.id)} mol {i + 1}\n"
                 textBuffer.write(atomBindsToMolecule)
 
         # for molecule, atoms in correctedMolDict.items():
