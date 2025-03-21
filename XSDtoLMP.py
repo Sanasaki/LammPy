@@ -1,46 +1,56 @@
 import re
-from collections import defaultdict
 from io import StringIO
 
 xsdExample: str = r"C:\Users\JL252842\Documents\Thesis\Lab\MaterialsStudio\CreatingLammpsCrystals_Files\Documents\NAMCrystalEditedForLAMMPS.xsd"
 
 
-def getPropertyValue(line: str, propertyName: str) -> str:
+def get_property_value(line: str, propertyName: str) -> str:
+    """
+    Retourne la valeur de la propriété propertyName dans la ligne donnée.
+    Prévu pour être utilisé avec les fichiers XSD.
+    Exemple: get_property_value('<Atom3d ID="1" Name="H" XYZ="0.0,0.0,0.0" />', 'XYZ') retourne '0.0,0.0,0.0'
+    """
     match = re.search(rf'{propertyName}="([^"]+)"', line)
     if match:
         return match.group(1)
     return " "
 
 
-def find_molecules(bonds):
+def find_molecules(bonds: list[tuple[str, str]]) -> list[list[str]]:
     """
     Regroupe les atomes en molécules basées sur les liaisons.
     bonds : liste de tuples (atom1, atom2) représentant les liaisons.
     Retourne une liste de molécules (listes d'atomes).
     """
     # Construire un graphe sous forme de dictionnaire d'adjacence
-    graph = defaultdict(set)
+    graph: dict[str, str] = {}
     for a1, a2 in bonds:
         graph[a1].add(a2)
         graph[a2].add(a1)
 
+    # Recherche des molécules en parcourant le graphe
+    visited_atoms: set[str] = set()
+
     # Fonction récursive pour explorer une molécule
-    def dfs(atom, molecule):
-        if atom in visited:
+    def merge_with_neighbors(atom: str, molecule: list[str]):
+        """
+        Modifie la liste renseignée en argument pour qu'elle inclue tous les atomes voisins (et leurs propres voisins) de l'atome donné.
+        Input: un atome, molécule mère
+        Output: molécule mère modifiée
+        """
+        if atom in visited_atoms:
             return
-        visited.add(atom)
+        visited_atoms.add(atom)
         molecule.append(atom)
         for neighbor in graph[atom]:
-            dfs(neighbor, molecule)
+            merge_with_neighbors(neighbor, molecule)
 
-    # Recherche des molécules en parcourant le graphe
-    visited = set()
-    molecules = []
+    molecules: list[list[str]] = []
 
     for atom in graph:
-        if atom not in visited:
-            molecule = []
-            dfs(atom, molecule)
+        if atom not in visited_atoms:
+            molecule: list[str] = []
+            merge_with_neighbors(atom, molecule)
             molecules.append(molecule)
 
     return molecules
@@ -48,46 +58,41 @@ def find_molecules(bonds):
 
 def getCrystal(xsdFilePath: str) -> str:
     textBuffer = StringIO()
+    aVector: list[str] = []
+    bVector: list[str] = []
+    cVector: list[str] = []
     with open(xsdFilePath, "r") as xsdFile:
         atomDict: dict[str, tuple[str, str, str, str]] = {}
         lmpIDxsdIDdict: dict[str, str] = {}
-        moleculeDict: dict[str, list[str]] = {}
         i = 1
-        bondList = []
+        atomPairs: list[tuple[str, str]] = []
         for line in xsdFile:
             # Retriving atoms
             if ("<Atom3d" and "UserID") in line:
-                atomID: str = getPropertyValue(line, "ID")
-                lammpsType: str = getPropertyValue(line, "Name")
-                x, y, z = getPropertyValue(line, "XYZ").split(",")
+                atomID: str = get_property_value(line, "ID")
+                lammpsType: str = get_property_value(line, "Name")
+                x, y, z = get_property_value(line, "XYZ").split(",")
                 atomDict[atomID] = (lammpsType, x, y, z)
                 lmpIDxsdIDdict[atomID] = str(i)
                 i += 1
 
             # Retriving molecules
             if ("<Bond" and "Connects") in line:
+                ## Hotfix to exclude HBond
                 if "HBond" in line:
                     continue
-                atom1, atom2 = getPropertyValue(line, "Connects").split(",")
-                bondList += [(atom1, atom2)]
-                # found = False
-                # for molecule in moleculeDict.values():
-                #     if atom1 in molecule or atom2 in molecule:
-                #         molecule.extend([atom for atom in [atom1, atom2] if atom not in molecule])
-                #         found = True
-                #         break
-                # if not found:
-                #     moleculeDict[f"{len(moleculeDict) + 1}"] = [atom1, atom2]
+                atom1, atom2 = get_property_value(line, "Connects").split(",")
+                atomPairs += [(atom1, atom2)]
 
             if "SpaceGroup" in line:
-                aVector: list[str] = getPropertyValue(line, "AVector").split(",")
-                bVector: list[str] = getPropertyValue(line, "BVector").split(",")
-                cVector: list[str] = getPropertyValue(line, "CVector").split(",")
+                aVector: list[str] = get_property_value(line, "AVector").split(",")
+                bVector: list[str] = get_property_value(line, "BVector").split(",")
+                cVector: list[str] = get_property_value(line, "CVector").split(",")
 
-    print(bondList)
-    molecules = find_molecules(bondList)
+    print(atomPairs)
+    molecules = find_molecules(atomPairs)
+    crystalMatrix: list[float] = [float(aVector[0]), float(bVector[1]), float(cVector[2])]
 
-    crystalMatrix = [float(aVector[0]), float(bVector[1]), float(cVector[2])]
     textBuffer.write("\n")
     for atomWithXsdID in atomDict.values():
         createAtom: str = f"create_atoms {atomWithXsdID[0]} single {float(atomWithXsdID[1]) * crystalMatrix[0]} {float(atomWithXsdID[2]) * crystalMatrix[1]} {float(atomWithXsdID[3]) * crystalMatrix[2]} remap yes\n"
@@ -103,6 +108,7 @@ def getCrystal(xsdFilePath: str) -> str:
     # for molecule, atoms in correctedMolDict.items():
     #     for atomWithXsdID in atoms:
 
+    # s'asssurer que ces groups soient à jour, ou au moins dynamiques.
     atomGroups: str = """
 group NitricHydrogenAtoms type 1
 group NitricNitrogenAtoms type 2
