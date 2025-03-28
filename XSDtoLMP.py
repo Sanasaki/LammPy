@@ -173,6 +173,6 @@ class XSDFile(File):
 
 
 if __name__ == "__main__":
-    xsdExample: str = r"C:\Archives\Thesis\Lab\VisualStudioCode\Python\LammPy\NAMCrystalEditedForLAMMPS.xsd"
+    xsdExample: str = r"C:\Archives\Thesis\Lab\VisualStudioCode\Python\TestGenerationLammps\templates\xsd_crystals\NAT-P1.xsd"
     xsdFile = XSDFile(xsdExample)
     print(xsdFile.getCrystal())
